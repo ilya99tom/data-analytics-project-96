@@ -1,0 +1,108 @@
+WITH ads_costs AS (
+-- Объединяем и агрегируем расходы из разных реклам
+    SELECT
+        campaign_date,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        SUM(daily_spent) AS daily_cost
+    FROM
+        ya_ads
+    GROUP BY 1, 2, 3, 4
+    UNION ALL
+    SELECT
+        campaign_date,
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        SUM(daily_spent) AS daily_cost
+    FROM
+        vk_ads
+    GROUP BY 1, 2, 3, 4
+),
+
+attributed_sessions AS (
+-- Применяем модель атрибуции "Last Paid Click" к сессиям
+    SELECT
+        s.visitor_id,
+        s.visit_date,
+        FIRST_VALUE(s.source) OVER (PARTITION BY s.visitor_id, s.attribution_group ORDER BY s.visit_date) AS utm_source,
+        FIRST_VALUE(s.medium) OVER (PARTITION BY s.visitor_id, s.attribution_group ORDER BY s.visit_date) AS utm_medium,
+        FIRST_VALUE(s.campaign) OVER (PARTITION BY s.visitor_id, s.attribution_group ORDER BY s.visit_date) AS utm_campaign
+    FROM (
+        SELECT
+            *,
+            SUM(
+                CASE
+                    WHEN medium IN ('cpc', 'cpm', 'cpa', 'youtube', 'cpp', 'tg', 'social') THEN 1
+                    ELSE 0
+                END
+            ) OVER (PARTITION BY visitor_id ORDER BY visit_date) AS attribution_group
+        FROM
+            sessions
+    ) AS s
+    WHERE s.attribution_group > 0
+),
+
+lead_to_session_map AS (
+-- Связываем каждый лид с последней сессией
+    SELECT
+        l.lead_id,
+        l.visitor_id,
+        s.visit_date,
+        ROW_NUMBER() OVER(PARTITION BY l.lead_id ORDER BY s.visit_date DESC) as rn
+    FROM
+        leads AS l
+    JOIN
+        sessions AS s
+        ON l.visitor_id = s.visitor_id AND s.visit_date <= l.created_at
+)
+
+select
+-- Собираем витрину, объединяя все данные и агрегируя их
+    CAST(s.visit_date AS DATE) AS visit_date,
+    s.utm_source,
+    s.utm_medium,
+    s.utm_campaign,
+    COUNT(s.visitor_id) AS visitors_count,
+    MAX(c.daily_cost) AS total_cost,
+    COUNT(DISTINCT l.lead_id) AS leads_count,
+    COUNT(DISTINCT CASE WHEN l.closing_reason = 'Успешно реализовано' OR l.status_id = 142 THEN l.lead_id END) AS purchases_count,
+    SUM(CASE WHEN l.closing_reason = 'Успешно реализовано' OR l.status_id = 142 THEN l.amount ELSE 0 END) AS revenue
+FROM
+    attributed_sessions AS s
+LEFT JOIN
+    ads_costs AS c
+    ON CAST(s.visit_date AS DATE) = c.campaign_date
+    AND s.utm_source = c.utm_source
+    AND s.utm_medium = c.utm_medium
+    AND s.utm_campaign = c.utm_campaign
+LEFT JOIN (
+    SELECT
+        lsm.visit_date,
+        lsm.visitor_id,
+        l_main.lead_id,
+        l_main.amount,
+        l_main.closing_reason,
+        l_main.status_id
+    FROM
+        lead_to_session_map AS lsm
+    JOIN
+        leads AS l_main ON lsm.lead_id = l_main.lead_id
+    WHERE
+        lsm.rn = 1
+) AS l
+    ON s.visitor_id = l.visitor_id AND s.visit_date = l.visit_date
+GROUP BY
+    CAST(s.visit_date AS DATE),
+    s.utm_source,
+    s.utm_medium,
+    s.utm_campaign
+ORDER BY
+    revenue DESC NULLS LAST,
+    visit_date ASC,
+    visitors_count DESC,
+    utm_source ASC,
+    utm_medium ASC,
+    utm_campaign asc
+	limit 15;
