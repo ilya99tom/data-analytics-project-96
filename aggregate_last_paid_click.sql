@@ -1,5 +1,5 @@
-WITH ads_costs AS (
 -- Объединяем и агрегируем расходы из разных реклам
+WITH ads_costs AS (
     SELECT
         campaign_date,
         utm_source,
@@ -21,8 +21,8 @@ WITH ads_costs AS (
     GROUP BY 1, 2, 3, 4
 ),
 
-attributed_sessions AS (
 -- Применяем модель атрибуции "Last Paid Click" к сессиям
+attributed_sessions AS (
     SELECT
         s.visitor_id,
         s.visit_date,
@@ -44,8 +44,8 @@ attributed_sessions AS (
     WHERE s.attribution_group > 0
 ),
 
-lead_to_session_map AS (
 -- Связываем каждый лид с последней сессией
+lead_to_session_map AS (
     SELECT
         l.lead_id,
         l.visitor_id,
@@ -58,8 +58,8 @@ lead_to_session_map AS (
         ON l.visitor_id = s.visitor_id AND s.visit_date <= l.created_at
 )
 
-select
 -- Собираем витрину, объединяя все данные и агрегируя их
+select
     CAST(s.visit_date AS DATE) AS visit_date,
     s.utm_source,
     s.utm_medium,
