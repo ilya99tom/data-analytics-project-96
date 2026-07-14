@@ -20,7 +20,7 @@ WITH sessions_with_groups AS (
                 PARTITION BY visitor_id
                 ORDER BY visit_date
             )
-        AS attribution_group
+            AS attribution_group
     FROM
         sessions
 ),
@@ -69,7 +69,7 @@ lead_to_session_map AS (
                 PARTITION BY l.lead_id
                 ORDER BY s.visit_date DESC
             )
-        AS rn
+            AS rn
     FROM
         leads AS l
     INNER JOIN
@@ -90,7 +90,8 @@ l AS (
     FROM
         lead_to_session_map AS lsm
     INNER JOIN
-        leads AS l_main ON lsm.lead_id = l_main.lead_id
+        leads AS l_main
+        ON lsm.lead_id = l_main.lead_id
     WHERE
         lsm.rn = 1
 )
